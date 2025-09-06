@@ -1,32 +1,60 @@
 "use client";
-import { useState } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle } from "lucide-react";
-
-const vitalsData = [
-  { time: "12:00", hr: 80, bp: 120 },
-  { time: "12:10", hr: 85, bp: 118 },
-  { time: "12:20", hr: 90, bp: 115 },
-  { time: "12:30", hr: 95, bp: 110 },
-  { time: "12:40", hr: 102, bp: 108 },
-];
+import { useEffect, useState } from "react";
 
 export default function AlertsPage() {
-  const [riskScore, setRiskScore] = useState(78);
+  const [alerts, setAlerts] = useState([]);
+  const [ws, setWs] = useState(null);
+  const [riskScore, setRiskScore] = useState(78); 
+  // Convert hours to future timestamp string
+  const formatAlertTime = (hours) => {
+    const futureDate = new Date();
+    futureDate.setHours(futureDate.getHours() + hours);
+    return futureDate.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true });
+  };
+
+  useEffect(() => {
+    // Connect to backend WebSocket
+    const websocket = new WebSocket("ws://127.0.0.1:8000/ws/alerts");
+
+    websocket.onopen = () => {
+      console.log("Connected to WebSocket");
+    };
+
+    websocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setAlerts(data.alerts); // Update state whenever backend broadcasts
+    };
+
+    websocket.onclose = () => {
+      console.log("WebSocket disconnected");
+    };
+
+    setWs(websocket);
+
+    return () => websocket.close(); // cleanup on unmount
+  }, []);
 
   return (
-    <>
-      <header className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-semibold text-black">Alerts</h2>
-      </header>
-
-      {/* Cards */}
-      <div className="grid grid-cols-3 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow flex items-center gap-3">
-          <AlertTriangle className="text-red-500" />
-          <p className="font-semibold text-red-500">2 Critical Alerts</p>
+     
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4 text-black">Alerts</h1>
+       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-gray-500 text-sm">Sepsis Risk Score</h3>
+          <p className="text-3xl font-bold text-green-700">{riskScore}%</p>
         </div>
       </div>
-    </>
+      <ul className="space-y-2">
+        {alerts.map((hours, idx) => (
+          <li
+            key={idx}
+            className="p-4 bg-white rounded shadow flex items-center gap-2"
+          >
+            <span className="text-red-500 font-semibold">⚠️</span>
+            <span className="text-red-500 font-semibold">May detect sepsis at {formatAlertTime(hours)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
