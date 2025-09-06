@@ -8,8 +8,6 @@ const patients = [
 ];
 
 export default function PatientsPage() {
-  const [riskScore, setRiskScore] = useState(78);
-
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* Top Navbar */}
