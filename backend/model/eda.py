@@ -184,6 +184,10 @@ if __name__ == '__main__':
     df = create_time_to_sepsis_label(df)
     # Now df['time_to_sepsis'] contains targets for time-to-sepsis prediction
     X, y = create_sequences(df, feature_cols=features, seq_length=12)
+    np.save(os.path.join(os.path.dirname(__file__), '..', 'data', 'X_sequences.npy'), X)
+    np.save(os.path.join(os.path.dirname(__file__), '..', 'data', 'y_labels.npy'), y)
+    print("Saved X and y sequences as numpy files.")
+
     output_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_sepsis_dataset.csv')
     df.to_csv(output_path, index=False)
     print("Processed data saved to 'processed_sepsis_dataset.csv'")
