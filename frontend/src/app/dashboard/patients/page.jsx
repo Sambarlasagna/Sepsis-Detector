@@ -1,25 +1,34 @@
-"use client";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { getSession } from "../../../lib/server/session";
+import { redirect } from "next/navigation";
+
 const patients = [
   { id: "patient1", name: "Patient 1" },
   { id: "patient2", name: "Patient 2" },
   { id: "patient3", name: "Patient 3" },
 ];
 
-export default function PatientsPage() {
+export default async function PatientsPage() {
+  const cookieStore = cookies();
+  const sessionToken = cookieStore.get(process.env.SESSION_COOKIE_NAME)?.value;
+  const session = await getSession(sessionToken);
+
+  if (!session) {
+    redirect(`/login?redirect=/dashboard/patients`);
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Top Navbar */}
       <nav className="w-full bg-white shadow-md py-4 px-8 flex justify-between items-center">
         <h1 className="text-2xl font-bold text-green-700">SepsisSense</h1>
-        <Link href="/login">
+        <Link href="/dashboard">
           <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-            Login
+            Dashboard
           </button>
         </Link>
       </nav>
 
-      {/* Main Content */}
       <main className="flex flex-col items-center justify-center flex-1 p-8">
         <h2 className="text-4xl font-extrabold mb-4 text-gray-800">Patients</h2>
         <p className="text-lg text-gray-600 max-w-2xl text-center mb-8">
