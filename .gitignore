@@ -22,3 +22,15 @@ env/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Ignore dataset CSV files
+*.csv
+*.tsv
+
+# Or if you want to ignore a specific CSV file or folder
+/backend/data/sepsis_dataset.csv
+
+# Ignore other large data files you don't want to push
+*.zip
+*.tar.gz
+*.h5
