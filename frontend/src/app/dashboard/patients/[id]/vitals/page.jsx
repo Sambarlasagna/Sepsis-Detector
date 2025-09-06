@@ -1,117 +1,108 @@
 "use client";
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { AlertTriangle } from "lucide-react";
-import { useParams } from "next/navigation";
 
-const vitalsData = [
-  { time: "12:00", hr: 80, bp: 120, spo2: 98 },
-  { time: "12:10", hr: 85, bp: 118, spo2: 97 },
-  { time: "12:20", hr: 90, bp: 115, spo2: 96 },
-  { time: "12:30", hr: 95, bp: 110, spo2: 97 },
-  { time: "12:40", hr: 102, bp: 108, spo2: 98 },
-];
+import { useEffect, useState } from "react";
+import Papa from "papaparse";
+import { Line } from "react-chartjs-2";
+import { useParams } from "next/navigation";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function VitalsPage() {
-  const [riskScore, setRiskScore] = useState(78);
-  const [alertsCount, setAlertsCount] = useState(0);
+  const { id } = useParams(); // Get patient ID from URL params
+  const [vitals, setVitals] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Get current path to extract patient ID
-  const { id } = useParams();
-
+  // Load CSV
   useEffect(() => {
-  if (!id) return; // Wait until we have the patient ID
+    console.log("Fetching CSV for patient", id);
+    Papa.parse("/simulated_sepsis_data.csv", {
+      header: true,
+      download: true,
+      dynamicTyping: true,
+      complete: (result) => {
+        console.log("CSV loaded:", result.data.length, "rows");
+        const numericId = parseInt(id.replace("patient", ""));
+        const patientVitals = result.data.filter(row => row.Patient_ID === numericId);
+        console.log("Patient vitals rows:", patientVitals.length);
+        setVitals(patientVitals);
+      },
+    });
+  }, [id]);
 
-  const websocket = new WebSocket(`ws://127.0.0.1:8000/ws/alerts/${id}`);
+  // Simulate real-time updates (1 hour = 3 seconds)
+  useEffect(() => {
+    if (vitals.length === 0) return;
 
-  websocket.onopen = () => {
-    console.log(`Vitals page connected to WebSocket for ${id}`);
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => {
+        if (prev < vitals.length - 1) return prev + 1;
+        clearInterval(interval); // stop when done
+        return prev;
+      });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [vitals]);
+
+  const liveData = vitals.slice(0, currentIndex + 1);
+
+  const chartData = {
+    labels: liveData.map((d) => `Hour ${d.Hour}`),
+    datasets: [
+      {
+        label: "Heart Rate (HR)",
+        data: liveData.map((d) => d.HR),
+        borderColor: "rgb(255, 99, 132)",
+        backgroundColor: "rgba(255, 99, 132, 0.5)",
+        yAxisID: "y",
+      },
+      {
+        label: "SpO₂",
+        data: liveData.map((d) => d.O2Sat),
+        borderColor: "rgb(54, 162, 235)",
+        backgroundColor: "rgba(54, 162, 235, 0.5)",
+        yAxisID: "y1",
+      },
+      {
+        label: "Temperature (°C)",
+        data: liveData.map((d) => d.Temp),
+        borderColor: "rgb(255, 206, 86)",
+        backgroundColor: "rgba(255, 206, 86, 0.5)",
+      },
+      {
+        label: "Respiratory Rate",
+        data: liveData.map((d) => d.Resp),
+        borderColor: "rgb(75, 192, 192)",
+        backgroundColor: "rgba(75, 192, 192, 0.5)",
+      },
+    ],
   };
 
-  websocket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    setAlertsCount(data.alerts.length);
+  const chartOptions = {
+    responsive: true,
+    interaction: { mode: "index", intersect: false },
+    stacked: false,
+    plugins: { title: { display: true, text: `Patient ${id} — Real-time Vitals` } },
+    scales: {
+      y: { type: "linear", display: true, position: "left", title: { display: true, text: "Heart Rate" } },
+      y1: { type: "linear", display: true, position: "right", title: { display: true, text: "SpO₂" }, grid: { drawOnChartArea: false } },
+    },
   };
-
-  websocket.onclose = () => {
-    console.log(`WebSocket for ${id} disconnected`);
-  };
-
-  return () => websocket.close();
-}, [id]);  // <--- IMPORTANT: Depend on id
 
   return (
-    <>
-      <header className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-semibold text-black">ICU Vitals Dashboard</h2>
-        <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-          Refresh Data
-        </button>
-      </header>
-
-      {/* Cards */}
-      <div className="grid grid-cols-3 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-gray-500 text-sm">Sepsis Risk Score</h3>
-          <p className="text-3xl font-bold text-green-700">{riskScore}%</p>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-gray-500 text-sm">Vital Signs Monitored</h3>
-          <p className="text-3xl font-bold text-black">HR, BP, SpO₂</p>
-        </div>
-
-        {/* Clickable Alerts Card */}
-        <Link href={`/dashboard/patients/${id}/alerts`}>
-  <div className="cursor-pointer bg-white p-6 rounded-lg shadow flex items-center gap-3 hover:bg-gray-100 transition">
-    <AlertTriangle className="text-red-500" />
-    <p className="font-semibold text-red-500">{alertsCount} Critical Alerts</p>
-  </div>
-</Link>
-      </div>
-
-      {/* Heart Rate Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 text-black">Heart Rate</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={vitalsData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="hr" stroke="#16a34a" strokeWidth={3} name="Heart Rate" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Blood Pressure Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 text-black">Blood Pressure</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={vitalsData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="bp" stroke="#ef4444" strokeWidth={3} name="Blood Pressure" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* SpO2 Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 text-black">SpO₂</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={vitalsData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="spo2" stroke="#3b82f6" strokeWidth={3} name="SpO₂" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </>
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">Real-Time Vitals</h2>
+      {vitals.length > 0 ? <Line data={chartData} options={chartOptions} /> : <p>Loading vitals...</p>}
+    </div>
   );
 }
