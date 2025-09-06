@@ -1,16 +1,40 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Bell, Activity } from "lucide-react";
+import { LayoutDashboard, Bell, Activity, PersonStanding } from "lucide-react";
 
 export default function DashboardLayout({ children }) {
   const pathname = usePathname();
 
-  const navItems = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Alerts", href: "/dashboard/patients/patient1/alerts", icon: Bell },
-    { name: "Vitals", href: "/dashboard/patients/patient1/vitals", icon: Activity },
-  ];
+  // Extract patientId from the URL if available
+  const pathParts = pathname.split("/");
+  const patientIdIndex = pathParts.indexOf("patients") + 1;
+  const patientId =
+    patientIdIndex > 0 && pathParts[patientIdIndex]
+      ? pathParts[patientIdIndex]
+      : null;
+
+  // Build nav items dynamically if patientId exists
+  const navItems = patientId
+    ? [
+        { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+        {
+          name: "Alerts",
+          href: `/dashboard/patients/${patientId}/alerts`,
+          icon: Bell,
+        },
+        {
+          name: "Vitals",
+          href: `/dashboard/patients/${patientId}/vitals`,
+          icon: Activity,
+        },
+        {
+          name: "Patient Details",
+          href: `/dashboard/patients/${patientId}`,
+          icon: PersonStanding,
+        }
+      ]
+    : [{ name: "Dashboard", href: "/dashboard", icon: LayoutDashboard }];
 
   return (
     <main className="flex min-h-screen bg-gray-100">
