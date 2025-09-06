@@ -1,5 +1,5 @@
 from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from typing import Optional,List
 
 # Used when a user signs in (Google sends profile data)
 class Doctor(BaseModel):
@@ -10,3 +10,6 @@ class Doctor(BaseModel):
 
     class Config:
         orm_mode = True
+
+class AlertMessage(BaseModel):
+    alerts: List[int]
