@@ -30,6 +30,8 @@ Thumbs.db
 # Or if you want to ignore a specific CSV file or folder
 /backend/data/sepsis_dataset.csv
 /backend/data/processed_sepsis_dataset.csv
+/backend/data/X_sequences.npy
+/backend/data/y_labels.npy
 
 # Ignore other large data files you don't want to push
 *.zip
