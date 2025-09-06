@@ -18,38 +18,42 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function VitalsPage() {
-  const { id } = useParams(); // Get patient ID from URL params
-  const [vitals, setVitals] = useState([]);
+  const { id } = useParams(); // patient ID from URL
+  const numericId = parseInt(id.replace("patient", ""));
+
+  const [allVitals, setAllVitals] = useState({});
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Load CSV
+  // Load CSV once
   useEffect(() => {
-    console.log("Fetching CSV for patient", id);
-    Papa.parse("/simulated_sepsis_data.csv", {
+    Papa.parse("/combined_sepsis_dataset.csv", {
       header: true,
       download: true,
       dynamicTyping: true,
       complete: (result) => {
-        console.log("CSV loaded:", result.data.length, "rows");
-        const numericId = parseInt(id.replace("patient", ""));
-        const patientVitals = result.data.filter(row => row.Patient_ID === numericId);
-        console.log("Patient vitals rows:", patientVitals.length);
-        setVitals(patientVitals);
+        const grouped = {};
+        result.data.forEach((row) => {
+          if (!grouped[row.Patient_ID]) grouped[row.Patient_ID] = [];
+          grouped[row.Patient_ID].push(row);
+        });
+        setAllVitals(grouped);
+        console.log("CSV loaded for all patients:", Object.keys(grouped));
       },
     });
-  }, [id]);
+  }, []);
 
-  // Simulate real-time updates (1 hour = 3 seconds)
+  const vitals = allVitals[numericId] || [];
+
+  // Simulate real-time progression
   useEffect(() => {
-    if (vitals.length === 0) return;
+    if (!vitals.length) return;
 
     const interval = setInterval(() => {
       setCurrentIndex((prev) => {
         if (prev < vitals.length - 1) return prev + 1;
-        clearInterval(interval); // stop when done
-        return prev;
+        return prev; // keep last value displayed
       });
-    }, 3000);
+    }, 3000); // 1 hour = 3 seconds
 
     return () => clearInterval(interval);
   }, [vitals]);
@@ -101,8 +105,12 @@ export default function VitalsPage() {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Real-Time Vitals</h2>
-      {vitals.length > 0 ? <Line data={chartData} options={chartOptions} /> : <p>Loading vitals...</p>}
+      <h2 className="text-xl font-bold mb-4">Real-Time Vitals — Patient {id}</h2>
+      {vitals.length > 0 ? (
+        <Line data={chartData} options={chartOptions} />
+      ) : (
+        <p>Loading vitals...</p>
+      )}
     </div>
   );
 }
