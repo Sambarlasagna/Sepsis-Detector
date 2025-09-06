@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-
 const patients = [
   { id: "patient1", name: "Patient 1" },
   { id: "patient2", name: "Patient 2" },
