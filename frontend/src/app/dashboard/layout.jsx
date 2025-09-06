@@ -10,7 +10,7 @@ export default function DashboardLayout({ children }) {
           <Link href="/dashboard/vitals" className="text-gray-700 hover:text-green-700">Vitals</Link>
           <Link href="/dashboard/patients" className="text-gray-700 hover:text-green-700">Patients</Link>
           <Link href="/dashboard/alerts" className="text-gray-700 hover:text-green-700">Alerts</Link>
-          <Link href="/dashboard/settings" className="text-gray-700 hover:text-green-700">Settings</Link>
+         
         </nav>
       </aside>
 

@@ -11,7 +11,7 @@ const vitalsData = [
   { time: "12:40", hr: 102, bp: 108 },
 ];
 
-export default function VitalsPage() {
+export default function PatientsPage() {
   const [riskScore, setRiskScore] = useState(78);
 
   return (
