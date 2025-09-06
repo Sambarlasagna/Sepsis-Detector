@@ -51,9 +51,8 @@ sim_df['Unit1'] = 0
 sim_df['Unit2'] = 1
 sim_df['HospAdmTime'] = -80
 sim_df['ICULOS'] = sim_df['Hour']
-sim_df['SepsisLabel'] = (sim_df['Hour'] == 24).astype(int)
+
 sim_df['Patient_ID'] = 2
-sim_df['time_to_sepsis'] = 24 - sim_df['Hour']
 
 # Round for realism
 cols_to_round = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'EtCO2', 'BaseExcess', 'HCO3', 'FiO2', 'pH', 'PaCO2', 'SaO2',

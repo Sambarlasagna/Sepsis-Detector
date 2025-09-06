@@ -60,9 +60,9 @@ patient1_df['HospAdmTime'] = -90
 patient1_df['ICULOS'] = patient1_df['Hour']
 
 # Sepsis label 1 from hour 12 onward
-patient1_df['SepsisLabel'] = (patient1_df['Hour'] >= 12).astype(int)
+
 patient1_df['Patient_ID'] = 1
-patient1_df['time_to_sepsis'] = np.where(patient1_df['Hour'] <= 12, 12 - patient1_df['Hour'], 0)
+
 
 # Round values
 cols_to_round = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'EtCO2', 'BaseExcess', 'HCO3', 'FiO2', 'pH', 'PaCO2', 'SaO2',
