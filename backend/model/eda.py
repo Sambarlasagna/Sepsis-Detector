@@ -50,5 +50,7 @@ def explore_csv():
     print(df.head())
 
 if __name__ == '__main__':
+    # Explore the CSV file
+    explore_csv()
     csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sepsis_dataset.csv')
     preprocess_sepsis_data(csv_path)
