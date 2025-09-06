@@ -11,46 +11,21 @@ const vitalsData = [
   { time: "12:40", hr: 102, bp: 108 },
 ];
 
-export default function VitalsPage() {
+export default function AlertsPage() {
   const [riskScore, setRiskScore] = useState(78);
 
   return (
     <>
       <header className="flex justify-between items-center mb-8">
-        <h2 className="text-3xl font-semibold text-black">ICU Vitals Dashboard</h2>
-        <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-          Refresh Data
-        </button>
+        <h2 className="text-3xl font-semibold text-black">Alerts</h2>
       </header>
 
       {/* Cards */}
       <div className="grid grid-cols-3 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-gray-500 text-sm">Sepsis Risk Score</h3>
-          <p className="text-3xl font-bold text-green-700">{riskScore}%</p>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-gray-500 text-sm">Vital Signs Monitored</h3>
-          <p className="text-3xl font-bold text-black">HR, BP, SpO₂</p>
-        </div>
         <div className="bg-white p-6 rounded-lg shadow flex items-center gap-3">
           <AlertTriangle className="text-red-500" />
           <p className="font-semibold text-red-500">2 Critical Alerts</p>
         </div>
-      </div>
-
-      {/* Chart */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 text-black">Heart Rate Trend</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={vitalsData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="hr" stroke="#16a34a" strokeWidth={3} />
-          </LineChart>
-        </ResponsiveContainer>
       </div>
     </>
   );
