@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-
 const patients = [
   { id: "patient1", name: "Patient 1" },
   { id: "patient2", name: "Patient 2" },
@@ -8,7 +7,7 @@ const patients = [
 ];
 
 export default function PatientsPage() {
-  const [riskScore, setRiskScore] = useState(78);
+  
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">

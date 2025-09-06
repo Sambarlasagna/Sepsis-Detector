@@ -1,8 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { AlertTriangle } from "lucide-react";
+import { useParams } from "next/navigation";
+
 const vitalsData = [
   { time: "12:00", hr: 80, bp: 120, spo2: 98 },
   { time: "12:10", hr: 85, bp: 118, spo2: 97 },
@@ -15,24 +18,29 @@ export default function VitalsPage() {
   const [riskScore, setRiskScore] = useState(78);
   const [alertsCount, setAlertsCount] = useState(0);
 
+  // Get current path to extract patient ID
+  const { id } = useParams();
+
   useEffect(() => {
-    const websocket = new WebSocket("ws://127.0.0.1:8000/ws/alerts");
+  if (!id) return; // Wait until we have the patient ID
 
-    websocket.onopen = () => {
-      console.log("Vitals page connected to WebSocket");
-    };
+  const websocket = new WebSocket(`ws://127.0.0.1:8000/ws/alerts/${id}`);
 
-    websocket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setAlertsCount(data.alerts.length);
-    };
+  websocket.onopen = () => {
+    console.log(`Vitals page connected to WebSocket for ${id}`);
+  };
 
-    websocket.onclose = () => {
-      console.log("WebSocket disconnected");
-    };
+  websocket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    setAlertsCount(data.alerts.length);
+  };
 
-    return () => websocket.close();
-  }, []);
+  websocket.onclose = () => {
+    console.log(`WebSocket for ${id} disconnected`);
+  };
+
+  return () => websocket.close();
+}, [id]);  // <--- IMPORTANT: Depend on id
 
   return (
     <>
@@ -55,15 +63,15 @@ export default function VitalsPage() {
         </div>
 
         {/* Clickable Alerts Card */}
-        <Link href="/dashboard/alerts">
-          <div className="cursor-pointer bg-white p-6 rounded-lg shadow flex items-center gap-3 hover:bg-gray-100 transition">
-            <AlertTriangle className="text-red-500" />
-            <p className="font-semibold text-red-500">{alertsCount} Critical Alerts</p>
-          </div>
-        </Link>
+        <Link href={`/dashboard/patients/${id}/alerts`}>
+  <div className="cursor-pointer bg-white p-6 rounded-lg shadow flex items-center gap-3 hover:bg-gray-100 transition">
+    <AlertTriangle className="text-red-500" />
+    <p className="font-semibold text-red-500">{alertsCount} Critical Alerts</p>
+  </div>
+</Link>
       </div>
 
-      {/* Chart */}
+      {/* Heart Rate Chart */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4 text-black">Heart Rate</h3>
         <ResponsiveContainer width="100%" height={300}>
@@ -72,12 +80,13 @@ export default function VitalsPage() {
             <XAxis dataKey="time" />
             <YAxis />
             <Tooltip />
-            <Line type="monotone" dataKey="hr" stroke="#16a34a" strokeWidth={3} name="Heart Rate"/>
-            
+            <Line type="monotone" dataKey="hr" stroke="#16a34a" strokeWidth={3} name="Heart Rate" />
           </LineChart>
         </ResponsiveContainer>
       </div>
-       <div className="bg-white p-6 rounded-lg shadow">
+
+      {/* Blood Pressure Chart */}
+      <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4 text-black">Blood Pressure</h3>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={vitalsData}>
@@ -85,21 +94,21 @@ export default function VitalsPage() {
             <XAxis dataKey="time" />
             <YAxis />
             <Tooltip />
-            <Line type="monotone" dataKey="bp" stroke="#ef4444" strokeWidth={3} name="Blood Pressure"/>
-            
+            <Line type="monotone" dataKey="bp" stroke="#ef4444" strokeWidth={3} name="Blood Pressure" />
           </LineChart>
         </ResponsiveContainer>
       </div>
-       <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 text-black">SP02</h3>
+
+      {/* SpO2 Chart */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h3 className="text-lg font-semibold mb-4 text-black">SpO₂</h3>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={vitalsData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="time" />
             <YAxis />
             <Tooltip />
-            <Line type="monotone" dataKey="spo2" stroke="#3b82f6" strokeWidth={3} name="SP02"/>
-            
+            <Line type="monotone" dataKey="spo2" stroke="#3b82f6" strokeWidth={3} name="SpO₂" />
           </LineChart>
         </ResponsiveContainer>
       </div>
