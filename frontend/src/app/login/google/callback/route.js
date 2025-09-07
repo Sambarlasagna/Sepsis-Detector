@@ -39,5 +39,5 @@ export async function GET(req) {
   await setSessionTokenCookie(cookieStore, sessionToken);
 
   const redirectTo = cookieStore.get("post_login_redirect")?.value || "/";
-  return new Response(null, { status: 302, headers: { Location: redirectTo } });
+  return new Response(null, { status: 302, headers: { Location: redirectTo } });
 }

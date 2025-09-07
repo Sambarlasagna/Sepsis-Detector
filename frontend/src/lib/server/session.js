@@ -19,6 +19,6 @@ export async function setSessionTokenCookie(cookieStore, token) {
     name: process.env.SESSION_COOKIE_NAME,
     value: token,
     path: "/",
-    httpOnly: true,
-  });
+    httpOnly: true,
+  });
 }
