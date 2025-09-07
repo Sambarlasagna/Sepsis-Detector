@@ -1,20 +1,23 @@
 "use client";
-import { useEffect, useState } from "react";
+
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import useAlerts from "@/hooks/useAlerts";
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState([]);
-  const [ws, setWs] = useState(null);
-  const [riskScore, setRiskScore] = useState(78);
-
-  // Extract patientId from the current URL
+  // Extract patientId from URL
   const pathname = usePathname();
   const pathParts = pathname.split("/");
   const patientIdIndex = pathParts.indexOf("patients") + 1;
   const patientId = pathParts[patientIdIndex];
 
+  const { alert, loading: alertsLoading } = useAlerts(patientId);
+  const [riskScore, setRiskScore] = useState(78); // placeholder
+
+  const alerts = alert?.hours_until_sepsis || [];
+
   // Format alert time based on predicted hours
-  const formatAlertTime = (hours) => {
+ const formatAlertTime = (hours) => {
     const futureDate = new Date();
     futureDate.setHours(futureDate.getHours() + hours);
     return futureDate.toLocaleTimeString([], {
@@ -24,29 +27,8 @@ export default function AlertsPage() {
     });
   };
 
-  useEffect(() => {
-    if (!patientId) return;
-
-    // Connect to patient-specific WebSocket
-    const websocket = new WebSocket(`ws://127.0.0.1:8000/ws/alerts/${patientId}`);
-
-    websocket.onopen = () => {
-      console.log(`Connected to WebSocket for ${patientId}`);
-    };
-
-    websocket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setAlerts(data.alerts || []); // Update state with patient-specific alerts
-    };
-
-    websocket.onclose = () => {
-      console.log(`WebSocket disconnected for ${patientId}`);
-    };
-
-    setWs(websocket);
-
-    return () => websocket.close(); // Cleanup on unmount
-  }, [patientId]);
+  // Sort alerts descending (latest first)
+  const sortedAlerts = [...alerts].sort((a, b) => b - a);
 
   return (
     <div className="p-6">
@@ -63,9 +45,11 @@ export default function AlertsPage() {
       </div>
 
       {/* Alerts List */}
-      {alerts.length > 0 ? (
+      {alertsLoading ? (
+        <p>Checking sepsis risk...</p>
+      ) : sortedAlerts.length > 0 ? (
         <ul className="space-y-2">
-          {alerts.map((hours, idx) => (
+          {sortedAlerts.map((hours, idx) => (
             <li
               key={idx}
               className="p-4 bg-white rounded shadow flex items-center gap-2"
@@ -78,7 +62,9 @@ export default function AlertsPage() {
           ))}
         </ul>
       ) : (
-        <p className="text-gray-500 text-sm">No active alerts for this patient.</p>
+        <p className="text-gray-500 text-sm">
+          No active alerts for this patient.
+        </p>
       )}
     </div>
   );
