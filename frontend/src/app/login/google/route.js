@@ -9,9 +9,12 @@ export async function GET(req) {
 
   const state = randomBytes(16).toString("hex");
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   cookieStore.set("google_oauth_state", state, { path: "/" });
   cookieStore.set("post_login_redirect", redirect, { path: "/" });
 
-  return NextResponse.redirect(googleAuthUrl + `&state=${state}`);
+  // ✅ Properly construct the redirect URL
+  const redirectUrl = `${googleAuthUrl}&state=${state}`;
+
+  return NextResponse.redirect(redirectUrl);
 }

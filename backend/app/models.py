@@ -13,3 +13,6 @@ class Doctor(BaseModel):
 
 class AlertMessage(BaseModel):
     hours_until_sepsis: List[int]
+
+class PatientSequence(BaseModel):
+    features: list

@@ -12,5 +12,5 @@ export async function query(text, params) {
     return res;
   } finally {
     client.release();
-  }
+  }
 }
