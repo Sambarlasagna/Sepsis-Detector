@@ -1,24 +1,83 @@
+# app/main.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
-from typing import Dict, List
+from typing import Dict, List, Optional
 import asyncio
 import uvicorn
 
-# --- DB ---
-from db import engine  # NeonDB connection setup
-from models import AlertMessage, PatientSequence  # Pydantic models
-
-# --- ML ---
 import torch
 import torch.nn as nn
-import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+
+from db import engine  # NeonDB connection
+from models import AlertMessage, PatientSequence  # shared Pydantic models
+
+# --------------------------
+# Lifespan for DB Startup/Shutdown
+# --------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(lambda _: None)
+        print("Connected to NeonDB ✅")
+    except Exception as e:
+        print("❌ Failed to connect to NeonDB:", e)
+
+    yield
+    await engine.dispose()
+    print("Database connection closed")
 
 
-# ------------------ GRU Model Definition ------------------
+# --------------------------
+# Initialize App
+# --------------------------
+app = FastAPI(
+    title="Sepsis Detector API",
+    description="Backend API for Sepsis Detection using AI/ML with Real-Time Alerts",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # TODO: restrict in prod
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --------------------------
+# Root & Simple Predict Placeholder
+# --------------------------
+@app.get("/")
+def read_root():
+    return {"message": "Sepsis Detector API is running"}
+
+@app.post("/predict")
+def predict(data: dict):
+    return {"input": data, "prediction": "sepsis_risk_placeholder"}
+
+
+# ============================================================
+# 🔹 GRU Model for Time-to-Sepsis Prediction
+# ============================================================
+
+FEATURES = [
+    'HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'EtCO2', 'BaseExcess', 'HCO3',
+    'FiO2', 'pH', 'PaCO2', 'SaO2', 'AST', 'BUN', 'Alkalinephos', 'Calcium', 'Chloride',
+    'Creatinine', 'Bilirubin_direct', 'Glucose', 'Lactate', 'Magnesium', 'Phosphate',
+    'Potassium', 'Bilirubin_total', 'TroponinI', 'Hct', 'Hgb', 'PTT', 'WBC', 'Fibrinogen',
+    'Platelets', 'Age', 'Gender', 'Unit1', 'Unit2', 'HospAdmTime', 'ICULOS'
+]
+
+SEQ_LENGTH = 6
+INPUT_DIM = len(FEATURES)
+MODEL_PATH = "gru_time_to_sepsis.pth"
+
 class GRUModel(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, num_layers=1, output_dim=1):
         super().__init__()
@@ -30,84 +89,34 @@ class GRUModel(nn.Module):
         out = out[:, -1, :]  # last timestep
         return self.fc(out).squeeze(1)
 
-
-# ------------------ Load Model ------------------
-def load_model(model_path, input_dim):
-    model = GRUModel(input_dim)
-    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
-    model.eval()
-    return model
-
-
-# ------------------ Data Preprocessing ------------------
-SEQ_LENGTH = 6
-scaler = StandardScaler()
-FEATURE_COLUMNS = ["feature1", "feature2", "feature3"]
-
-def preprocess_input(data_list):
-    df = pd.DataFrame(data_list)
-    df = df[FEATURE_COLUMNS]
-    df = df.ffill().bfill().fillna(df.median())
-    df_scaled = scaler.transform(df)
-    return df_scaled
-
-
-# -------------------------- Lifespan --------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda _: None)
-        print("Connected to NeonDB")
-    except Exception as e:
-        print("Failed to connect to NeonDB:", e)
-
-    yield
-
-    await engine.dispose()
-    print("Database connection closed")
-
-
-# -------------------------- FastAPI Init --------------------------
-app = FastAPI(
-    title="Sepsis Detector API",
-    description="Backend API for Sepsis Detection using AI/ML with Real-Time Alerts",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # adjust for prod
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# -------------------------- Root --------------------------
-@app.get("/")
-def read_root():
-    return {"message": "Sepsis Detector API is running 🚀"}
-
-
-# -------------------------- ML Prediction --------------------------
-MODEL_PATH = "gru_time_to_sepsis.pth"
-model = load_model(MODEL_PATH, input_dim=len(FEATURE_COLUMNS))
-scaler.fit(np.zeros((10, len(FEATURE_COLUMNS))))  # dummy fit
+# Load model once
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = GRUModel(INPUT_DIM)
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+model.to(device)
+model.eval()
 
 @app.post("/predict-ml/")
 async def predict_time_to_sepsis(input_data: PatientSequence):
-    seq_array = preprocess_input(input_data.features)
-    input_tensor = torch.tensor(seq_array, dtype=torch.float32).unsqueeze(0)
+    input_seq = input_data.features
+    if len(input_seq) != SEQ_LENGTH:
+        return {"error": f"Expected {SEQ_LENGTH} timesteps, got {len(input_seq)}"}
+
+    try:
+        input_array = np.array([[step[feat] for feat in FEATURES] for step in input_seq], dtype=np.float32)
+    except KeyError as e:
+        return {"error": f"Missing feature in input: {e.args[0]}"}
+
+    input_tensor = torch.tensor(input_array).unsqueeze(0).to(device)  # (1, 6, INPUT_DIM)
     with torch.no_grad():
-        prediction = model(input_tensor).item()
-    prediction_clipped = max(0.0, min(6.0, prediction))
-    return {"predicted_time_to_sepsis": prediction_clipped}
+        pred = model(input_tensor).item()
+
+    return {"predicted_time_to_sepsis": pred}
 
 
-# -------------------------- WebSocket Connection Manager --------------------------
+# ============================================================
+# 🔹 WebSocket Connection Manager for Real-Time Alerts
+# ============================================================
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
@@ -131,12 +140,10 @@ class ConnectionManager:
                 await connection.send_json(alert_payload.model_dump())
 
 
-# Global manager & storage
 manager = ConnectionManager()
 alerts_storage: Dict[str, List[int]] = {}
 
 
-# -------------------------- WebSocket Endpoint --------------------------
 @app.websocket("/ws/alerts/{patient_id}")
 async def websocket_alerts(websocket: WebSocket, patient_id: str):
     await manager.connect(patient_id, websocket)
@@ -146,12 +153,11 @@ async def websocket_alerts(websocket: WebSocket, patient_id: str):
 
     try:
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(1)  # keep alive
     except WebSocketDisconnect:
         manager.disconnect(patient_id, websocket)
 
 
-# -------------------------- POST Endpoint to Trigger Alerts --------------------------
 @app.post("/test-alerts/{patient_id}")
 async def add_test_alerts(patient_id: str, request: AlertMessage):
     if patient_id not in alerts_storage:
@@ -162,7 +168,6 @@ async def add_test_alerts(patient_id: str, request: AlertMessage):
     return {"patient_id": patient_id, "alerts": alerts_storage[patient_id]}
 
 
-# -------------------------- Clear Alerts --------------------------
 @app.delete("/clear-alerts/{patient_id}")
 async def clear_alerts(patient_id: str):
     alerts_storage[patient_id] = []
@@ -170,6 +175,8 @@ async def clear_alerts(patient_id: str):
     return {"patient_id": patient_id, "alerts": []}
 
 
-# -------------------------- Run --------------------------
+# --------------------------
+# Run Server
+# --------------------------
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
