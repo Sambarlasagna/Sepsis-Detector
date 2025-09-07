@@ -77,10 +77,11 @@ class ConnectionManager:
                 del self.active_connections[patient_id]
 
     async def broadcast(self, patient_id: str, message: List[int]):
-        if patient_id in self.active_connections:
-            alert_payload = AlertMessage(alerts=message)  # Pydantic model
-            for connection in self.active_connections[patient_id]:
-                await connection.send_json(alert_payload.model_dump())
+     if patient_id in self.active_connections:
+        # Match the same field name as the Pydantic model
+        alert_payload = AlertMessage(hours_until_sepsis=message)
+        for connection in self.active_connections[patient_id]:
+            await connection.send_json(alert_payload.model_dump())
 
 
 # Global manager & storage
