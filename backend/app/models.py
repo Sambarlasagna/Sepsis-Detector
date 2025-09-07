@@ -12,4 +12,4 @@ class Doctor(BaseModel):
         orm_mode = True
 
 class AlertMessage(BaseModel):
-    alerts: List[int]
+    hours_until_sepsis: List[int]
