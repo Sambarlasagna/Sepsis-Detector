@@ -6,20 +6,20 @@ from typing import Dict, List
 import asyncio
 import uvicorn
 import time
-import pandas as pd
-import os
+
 import torch
 import torch.nn as nn
 import numpy as np
-import logging
-from rich.logging import RichHandler
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 
+from db import engine  # NeonDB connection
 from models import AlertMessage, PatientSequence  # shared Pydantic models
 
 # ============================================================
-# 🔹 Logging
+# 🔹 Rich Logging Setup
 # ============================================================
+import logging
+from rich.logging import RichHandler
+
 logging.basicConfig(
     level="INFO",
     format="%(message)s",
@@ -28,8 +28,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sepsis-detector")
 
+
 # ============================================================
-# 🔹 Database (asyncpg for NeonDB)
+# 🔹 Lifespan for DB Startup/Shutdown
+# ============================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(lambda _: None)
+        logger.info("✅ Connected to NeonDB")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to NeonDB: {e}")
+
+    yield
+    await engine.dispose()
+    logger.info("Database connection closed")
+
+
+# ============================================================
+# 🔹 Initialize App
 # ============================================================
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -38,8 +56,9 @@ DATABASE_URL = os.getenv(
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
 # ============================================================
-# 🔹 GRU Model Setup
+# 🔹 GRU Model for Time-to-Sepsis Prediction
 # ============================================================
+
 FEATURES = [
     'HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'EtCO2', 'BaseExcess', 'HCO3',
     'FiO2', 'pH', 'PaCO2', 'SaO2', 'AST', 'BUN', 'Alkalinephos', 'Calcium', 'Chloride',
@@ -47,6 +66,7 @@ FEATURES = [
     'Potassium', 'Bilirubin_total', 'TroponinI', 'Hct', 'Hgb', 'PTT', 'WBC', 'Fibrinogen',
     'Platelets', 'Age', 'Gender', 'Unit1', 'Unit2', 'HospAdmTime', 'ICULOS'
 ]
+
 SEQ_LENGTH = 6
 INPUT_DIM = len(FEATURES)
 MODEL_PATH = "../model/model_1_gru_time_to_sepsis.pth"
@@ -56,20 +76,48 @@ class GRUModel(nn.Module):
         super().__init__()
         self.gru = nn.GRU(input_dim, hidden_dim, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
+
     def forward(self, x):
         out, _ = self.gru(x)
-        out = out[:, -1, :]
+        out = out[:, -1, :]  # last timestep
         return self.fc(out).squeeze(1)
 
+
+# Load model once
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = GRUModel(INPUT_DIM)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
 model.to(device)
 model.eval()
+
 logger.info(f"Model loaded from {MODEL_PATH} on {device}")
 
+
+@app.post("/predict-ml/")
+async def predict_time_to_sepsis(input_data: PatientSequence):
+    input_seq = input_data.features
+    logger.info(f"Received ML prediction request with {len(input_seq)} timesteps")
+
+    if len(input_seq) != SEQ_LENGTH:
+        logger.warning(f"Invalid sequence length: expected {SEQ_LENGTH}, got {len(input_seq)}")
+        return {"error": f"Expected {SEQ_LENGTH} timesteps, got {len(input_seq)}"}
+
+    try:
+        input_array = np.array([[step[feat] for feat in FEATURES] for step in input_seq], dtype=np.float32)
+    except KeyError as e:
+        logger.error(f"Missing feature in input: {e.args[0]}")
+        return {"error": f"Missing feature in input: {e.args[0]}"}
+
+    input_tensor = torch.tensor(input_array).unsqueeze(0).to(device)  # (1, 6, INPUT_DIM)
+    with torch.no_grad():
+        pred = model(input_tensor).item()
+
+    logger.info(f"Prediction result: {pred}")
+    return {"predicted_time_to_sepsis": pred}
+
+
 # ============================================================
-# 🔹 WebSocket Manager
+# 🔹 WebSocket Connection Manager for Real-Time Alerts
 # ============================================================
 class ConnectionManager:
     def __init__(self):
@@ -77,138 +125,63 @@ class ConnectionManager:
 
     async def connect(self, patient_id: str, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.setdefault(patient_id, []).append(websocket)
-        logger.info(f"WebSocket connected for {patient_id}")
+        if patient_id not in self.active_connections:
+            self.active_connections[patient_id] = []
+        self.active_connections[patient_id].append(websocket)
+        logger.info(f"WebSocket connected for patient_id={patient_id}")
 
     def disconnect(self, patient_id: str, websocket: WebSocket):
         if patient_id in self.active_connections:
             self.active_connections[patient_id].remove(websocket)
             if not self.active_connections[patient_id]:
                 del self.active_connections[patient_id]
-        logger.info(f"WebSocket disconnected for {patient_id}")
+        logger.info(f"WebSocket disconnected for patient_id={patient_id}")
 
     async def broadcast(self, patient_id: str, message: List[int]):
         if patient_id in self.active_connections:
-            payload = AlertMessage(hours_until_sepsis=message)
-            for ws in list(self.active_connections[patient_id]):
-                try:
-                    await ws.send_json(payload.model_dump())
-                except WebSocketDisconnect:
-                    self.disconnect(patient_id, ws)
+            alert_payload = AlertMessage(hours_until_sepsis=message)
+            for connection in self.active_connections[patient_id]:
+                await connection.send_json(alert_payload.model_dump())
             logger.info(f"Broadcasted alerts to {patient_id}: {message}")
+
 
 manager = ConnectionManager()
 alerts_storage: Dict[str, List[int]] = {}
 
-# ============================================================
-# 🔹 CSV Simulation
-# ============================================================
-async def simulate_patient_alerts(patient_id: str, csv_path: str):
-    try:
-        reader = list(pd.read_csv(csv_path).to_dict(orient="records"))
-    except Exception as e:
-        logger.error(f"Failed to read CSV {csv_path}: {e}")
-        return
 
-    for start in range(len(reader) - SEQ_LENGTH + 1):
-        window = reader[start:start + SEQ_LENGTH]
-        try:
-            arr = np.array([[float(step[feat]) for feat in FEATURES] for step in window], dtype=np.float32)
-            tensor = torch.tensor(arr).unsqueeze(0).to(device)
-            with torch.no_grad():
-                pred = model(tensor).item()
-                pred_int = int(pred)
-        except Exception as e:
-            logger.error(f"Prediction failed at rows {start}-{start+SEQ_LENGTH-1}: {e}")
-            continue
-
-        # Store cumulative alerts for reference
-        alerts_storage.setdefault(patient_id, []).append(pred_int)
-
-        # Broadcast only the latest alert
-        await manager.broadcast(patient_id, [pred_int])
-        logger.info(f"Simulated alert: {pred:.1f} hours (rows {start}-{start+SEQ_LENGTH-1})")
-        await asyncio.sleep(3)
-
-# ============================================================
-# 🔹 Lifespan
-# ============================================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Connect DB
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda _: None)
-        logger.info("✅ Connected to NeonDB")
-    except Exception as e:
-        logger.error(f"❌ Failed to connect to NeonDB: {e}")
-
-    # BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # go up to project root
-    # csv_path = os.path.join(BASE_DIR, "frontend", "public", "patient1.csv")
-    # asyncio.create_task(simulate_patient_alerts("patient1", csv_path))
-    logger.info("🔹 Started patient1 simulation")
-
-    yield
-
-    await engine.dispose()
-    logger.info("Database connection closed")
-
-# ============================================================
-# 🔹 FastAPI App
-# ============================================================
-app = FastAPI(title="Sepsis Detector API", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ============================================================
-# 🔹 WebSocket Endpoint
-# ============================================================
 @app.websocket("/ws/alerts/{patient_id}")
 async def websocket_alerts(websocket: WebSocket, patient_id: str):
     await manager.connect(patient_id, websocket)
 
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    csv_path = os.path.join(BASE_DIR, "frontend", "public", f"{patient_id}.csv")
-    
-    # Start simulation if not already started
-    if patient_id not in alerts_storage:
-        alerts_storage[patient_id] = []
-        if os.path.exists(csv_path):
-            asyncio.create_task(simulate_patient_alerts(patient_id, csv_path))
-            logger.info(f"🔹 Started simulation for {patient_id}")
-        else:
-            logger.error(f"CSV file not found for {patient_id}: {csv_path}")
+    if patient_id in alerts_storage and alerts_storage[patient_id]:
+        await websocket.send_json({"alerts": alerts_storage[patient_id]})
+        logger.info(f"Sent stored alerts for {patient_id}")
 
-    # Do NOT send the entire past array here — let simulation push each new alert
     try:
         while True:
-            await asyncio.sleep(1)  # keep connection alive
+            await asyncio.sleep(1)  # keep alive
     except WebSocketDisconnect:
         manager.disconnect(patient_id, websocket)
 
-# ============================================================
-# 🔹 Root & Predict
-# ============================================================
-@app.get("/")
-def read_root():
-    return {"message": "Sepsis Detector API is running"}
 
-@app.post("/predict-ml/")
-async def predict_ml(input_data: PatientSequence):
-    input_seq = input_data.features
-    if len(input_seq) != SEQ_LENGTH:
-        return {"error": f"Expected {SEQ_LENGTH} timesteps, got {len(input_seq)}"}
-    arr = np.array([[step[feat] for feat in FEATURES] for step in input_seq], dtype=np.float32)
-    tensor = torch.tensor(arr).unsqueeze(0).to(device)
-    with torch.no_grad():
-        pred = model(tensor).item()
-    return {"predicted_time_to_sepsis": pred}
+@app.post("/test-alerts/{patient_id}")
+async def add_test_alerts(patient_id: str, request: AlertMessage):
+    if patient_id not in alerts_storage:
+        alerts_storage[patient_id] = []
+
+    alerts_storage[patient_id].extend(request.hours_until_sepsis)
+    await manager.broadcast(patient_id, alerts_storage[patient_id])
+    logger.info(f"Added test alerts for {patient_id}: {request.hours_until_sepsis}")
+    return {"patient_id": patient_id, "alerts": alerts_storage[patient_id]}
+
+
+@app.delete("/clear-alerts/{patient_id}")
+async def clear_alerts(patient_id: str):
+    alerts_storage[patient_id] = []
+    await manager.broadcast(patient_id, [])
+    logger.info(f"Cleared alerts for {patient_id}")
+    return {"patient_id": patient_id, "alerts": []}
+
 
 # ============================================================
 # 🔹 Run Server
