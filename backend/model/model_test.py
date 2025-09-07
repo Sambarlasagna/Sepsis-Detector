@@ -74,6 +74,6 @@ def predict_for_valid_patient_at_hour(desired_hour):
         break  # Predict for first valid patient and exit
 
 if __name__ == '__main__':
-    TEST_HOURS = [247]  # hour for prediction
+    TEST_HOURS = [242]  # hour for prediction
     for hour in TEST_HOURS:
         predict_for_valid_patient_at_hour(hour)
