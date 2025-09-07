@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 import { validateAuthorizationCode } from "../../../../lib/server/oauth";
-import { generateSessionToken, createSession, setSessionTokenCookie } from "../../../../lib/server/session";
+import { generateSessionToken, createSession, setSessionTokenCookie } from "lib/server/session";
 import { createUser, getUserFromGoogleId } from "../../../../lib/server/user";
 
 export async function GET(req) {
