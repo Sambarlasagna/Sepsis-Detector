@@ -129,7 +129,7 @@ def create_time_to_sepsis_label(df, patient_col='Patient_ID', hour_col='Hour', l
     return df
 
 
-def create_sequences(df, patient_col='Patient_ID', hour_col='Hour', feature_cols=None, seq_length=12):
+def create_sequences(df, patient_col='Patient_ID', hour_col='Hour', feature_cols=None, seq_length=6):
     """
     Generate fixed-length sequences of patient data for model input:
     - For each patient, slide a window of length seq_length over their hourly data.
