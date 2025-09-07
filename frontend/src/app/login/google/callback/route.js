@@ -9,7 +9,8 @@ export async function GET(req) {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // ✅ Await cookies()
+
   const storedState = cookieStore.get("google_oauth_state")?.value;
 
   if (!code || !state || !storedState || state !== storedState) {
@@ -24,7 +25,8 @@ export async function GET(req) {
     return new Response("OAuth error", { status: 400 });
   }
 
-  const decoded = jwt.decode(tokens.idToken());
+  // ✅ Use tokens.idToken directly
+  const decoded = jwt.decode(tokens.idToken);
   const googleUserId = decoded.sub;
   const username = decoded.name;
   const picture = decoded.picture || null;
@@ -39,5 +41,5 @@ export async function GET(req) {
   await setSessionTokenCookie(cookieStore, sessionToken);
 
   const redirectTo = cookieStore.get("post_login_redirect")?.value || "/";
-  return new Response(null, { status: 302, headers: { Location: redirectTo } });
+  return new Response(null, { status: 302, headers: { Location: redirectTo } });
 }
