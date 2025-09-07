@@ -1,15 +1,17 @@
-
-import os
 import pandas as pd
+import os
 
-csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_sepsis_dataset.csv')
-csv_path2 = os.path.join(os.path.dirname(__file__), '..', 'data', 'patient1_sepsis_simulated.csv')
-df = pd.read_csv(csv_path)
-print(df.head(20))  # prints first 20 rows to see new columns and values
+DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'synthetic_patient_dataset.csv')
 
-df2 = pd.read_csv(csv_path2)
-print(df2.head(20))  # prints first 20 rows to see new columns and values
+# Load the CSV
+df = pd.read_csv(DATA_PATH)
 
+# Show basic info
+print("Columns:", df.columns.tolist())
+print("\nFirst 10 rows:\n", df.head(10))
+print("\nData summary:\n", df.describe())
 
-print(df['time_to_sepsis'].value_counts())  # check distribution of new label
-
+# Optional: see per-hour trends for the first patient
+patient_id = df['Patient_ID'].unique()[0]
+patient_df = df[df['Patient_ID'] == patient_id]
+print("\nPatient-specific data (all hours):\n", patient_df)
