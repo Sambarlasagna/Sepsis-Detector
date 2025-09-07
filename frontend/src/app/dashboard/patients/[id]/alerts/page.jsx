@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import useAlerts from "@/hooks/useAlerts";
+import useAlerts from "../../../../../../hooks/useAlerts";
 
 export default function AlertsPage() {
   // Extract patientId from URL

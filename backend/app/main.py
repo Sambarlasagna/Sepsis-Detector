@@ -33,7 +33,7 @@ logger = logging.getLogger("sepsis-detector")
 # ============================================================
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://neondb_owner:npg_Q1RNakf5ZUpw@ep-weathered-field-a1da99tk-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    "postgresql+asyncpg://neondb_owner:npg_Q1RNakf5ZUpw@ep-weathered-field-a1da99tk-pooler.ap-southeast-1.aws.neon.tech/neondb"
 )
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
@@ -49,7 +49,7 @@ FEATURES = [
 ]
 SEQ_LENGTH = 6
 INPUT_DIM = len(FEATURES)
-MODEL_PATH = "../model/gru_time_to_sepsis.pth"
+MODEL_PATH = "../model/model_1_gru_time_to_sepsis.pth"
 
 class GRUModel(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, num_layers=1, output_dim=1):
