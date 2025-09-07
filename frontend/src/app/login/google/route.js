@@ -13,5 +13,6 @@ export async function GET(req) {
   cookieStore.set("google_oauth_state", state, { path: "/" });
   cookieStore.set("post_login_redirect", redirect, { path: "/" });
 
-  return NextResponse.redirect(googleAuthUrl + `&state=${state}`);
+  // Use backticks for template literal
+  return NextResponse.redirect(`${googleAuthUrl}&state=${state}`);
 }

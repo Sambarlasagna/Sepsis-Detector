@@ -10,5 +10,5 @@ export async function createUser(googleId, name, picture = null, email = null) {
     "INSERT INTO users (google_id, name, picture, email) VALUES ($1, $2, $3, $4) RETURNING *",
     [googleId, name, picture, email]
   );
-  return res.rows[0];
+  return res.rows[0];
 }
