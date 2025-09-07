@@ -1,18 +1,32 @@
-import { NextResponse } from "next/server";
-import { googleAuthUrl } from "../../../lib/server/oauth";
+import { generateState, generateCodeVerifier } from "arctic";
 import { cookies } from "next/headers";
-import { randomBytes } from "crypto";
+import { google } from "@/lib/server/oauth";
 
-export async function GET(req) {
-  const url = new URL(req.url);
-  const redirect = url.searchParams.get("redirect") || "/";
+export async function GET() {
+	const state = generateState();
+	const codeVerifier = generateCodeVerifier();
+	const url = google.createAuthorizationURL(state, codeVerifier, ["openid", "profile"]);
 
-  const state = randomBytes(16).toString("hex");
+	const cookieStore = await cookies();
+	cookieStore.set("google_oauth_state", state, {
+		path: "/",
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		maxAge: 60 * 10, // 10 minutes
+		sameSite: "lax"
+	});
+	cookieStore.set("google_code_verifier", codeVerifier, {
+		path: "/",
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		maxAge: 60 * 10, // 10 minutes
+		sameSite: "lax"
+	});
 
-  const cookieStore = cookies();
-  cookieStore.set("google_oauth_state", state, { path: "/" });
-  cookieStore.set("post_login_redirect", redirect, { path: "/" });
-
-  // Use backticks for template literal
-  return NextResponse.redirect(`${googleAuthUrl}&state=${state}`);
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: url.toString()
+		}
+	});
 }
