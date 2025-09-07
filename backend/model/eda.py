@@ -1,150 +1,65 @@
-import pandas as pd
 import os
+import pandas as pd
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
-"""
-Sepsis Data Preprocessing and Sequence Preparation
+# ------------------------ Parameters ------------------------
+SEQ_LENGTH = 6       # Sequence length for GRU input
+MAX_TIME = 6         # Max time-to-sepsis label cap
+BATCH_SIZE = 64
+NUM_EPOCHS = 20
+LEARNING_RATE = 0.001
 
-This script processes the raw sepsis dataset to prepare it for
-time-to-event modeling (predicting time until sepsis onset).
+DATA_CSV_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'sepsis_dataset.csv')
+MODEL_SAVE_PATH = 'gru_time_to_sepsis.pth'
 
-Key steps performed:
-
-1. Data Exploration
-   - Displays basic dataset info and a preview of the data.
-
-2. Data Preprocessing
-   - Drops redundant columns.
-   - Sorts data by patient ID and hourly time index to preserve temporal order.
-   - Handles missing values by forward/backward filling per patient,
-     then fills any remaining missing data with median values.
-   - Normalizes features using z-score scaling.
-
-3. Label Engineering: Time-to-Sepsis
-   - Creates a new label column 'time_to_sepsis' that indicates,
-     for each hourly record, how many hours remain until sepsis onset.
-   - For patients without sepsis, labels are capped at a max value (censored).
-
-4. Sequence Creation for Modeling
-   - Generates fixed-length sliding window sequences of patient data.
-   - Each sequence consists of consecutive hourly feature values.
-   - Labels correspond to 'time_to_sepsis' at the end of each sequence.
-
-5. Output
-   - Processed DataFrame is saved as 'processed_sepsis_dataset.csv'.
-   - Prepared sequences (X) and labels (y) are ready for use in predictive models.
-
-This enables training machine learning models (e.g., LSTM/GRU) to predict
-how soon sepsis will occur given patient data sequences in real-time.
-"""
-
-
+# ------------------------ 1. Data Preprocessing ------------------------
 def preprocess_sepsis_data(df):
-    """
-    Preprocess the raw sepsis dataset:
-    - Drops redundant columns
-    - Sorts data by Patient_ID and Hour to maintain temporal order
-    - Handles missing data by forward and backward filling per patient
-    - Fills any remaining NaNs with the median of the respective feature
-    - Applies z-score normalization to features
-    Returns:
-        df: cleaned and normalized dataframe
-        features: list of feature column names used for modeling
-    """
-    # Drop redundant column if present
-    df = df.drop(columns=['Unnamed: 0'])
+    # Drop redundant columns if present
+    if 'Unnamed: 0' in df.columns:
+        df = df.drop(columns=['Unnamed: 0'])
 
-    # Sort data by patient and hourly time index
+    # Sort by Patient_ID and Hour to keep temporal order
     df = df.sort_values(['Patient_ID', 'Hour'])
 
-    # Identify features excluding target and identifiers
+    # Identify feature columns
     features = [col for col in df.columns if col not in ['SepsisLabel', 'Patient_ID', 'Hour']]
-    
-    # Forward and backward fill missing data per patient to keep continuity
-    df[features] = df.groupby('Patient_ID')[features].transform(lambda group: group.ffill().bfill())
 
-    # Fill any remaining missing data with median values (robust to outliers)
+    # Fill missing data by forward/backward fill per patient, then median fill
+    df[features] = df.groupby('Patient_ID')[features].transform(lambda g: g.ffill().bfill())
     df[features] = df[features].fillna(df[features].median())
 
-    # Standardize feature values to zero mean and unit variance
+    # Normalize features using StandardScaler
     scaler = StandardScaler()
     df[features] = scaler.fit_transform(df[features])
 
-    print("Preprocessing complete. Sample data:")
-    print(df.head())
+    return df, features, scaler
 
-    return df, features
-
-
-def explore_csv(df):
-    """
-    Exploratory function to inspect dataset structure and contents.
-    Prints column names, datatype info, and first few rows for overview.
-    """
-    print("Columns in sepsis_dataset.csv:")
-    print(df.columns.tolist())
-    print("\nDataframe Info:")
-    print(df.info())
-    print("\nFirst 5 rows:")
-    print(df.head())
-
-
-def create_time_to_sepsis_label(df, patient_col='Patient_ID', hour_col='Hour', label_col='SepsisLabel', max_time=24):
-    """
-    Create a time-to-event label column 'time_to_sepsis':
-    - For each hour in patient data, this column indicates how many hours remain until sepsis onset.
-    - Hours after or at sepsis onset have label 0.
-    - Patients without sepsis have label set to max_time (censored).
-    Args:
-        df: input preprocessed dataframe
-        patient_col: name of patient identifier column
-        hour_col: name of time index column (usually hours)
-        label_col: binary sepsis onset label column
-        max_time: maximum cap for time-to-sepsis (censoring value)
-    Returns:
-        df: dataframe with added 'time_to_sepsis' column
-    """
+# ------------------------ 2. Create time_to_sepsis label ------------------------
+def create_time_to_sepsis_label(df, patient_col='Patient_ID', hour_col='Hour', label_col='SepsisLabel', max_time=MAX_TIME):
     df = df.copy()
-    df['time_to_sepsis'] = max_time  # Initialize with maximum time (censored)
-
+    df['time_to_sepsis'] = max_time  # initialize with max_time (censoring time)
     patients = df[patient_col].unique()
 
     for patient in patients:
         patient_data = df[df[patient_col] == patient]
         sepsis_hours = patient_data[patient_data[label_col] == 1][hour_col].values
 
-        # If no sepsis, keep max_time as label
         if len(sepsis_hours) == 0:
             continue
 
-        sepsis_start = sepsis_hours[0]  # First hour of sepsis onset
-
-        # Calculate time difference to sepsis at each hour, clipped between 0 and max_time
+        sepsis_start = sepsis_hours[0]  # first hour SepsisLabel=1
         time_to_sepsis_vals = (sepsis_start - patient_data[hour_col]).clip(lower=0, upper=max_time).values
-
-        # Update dataframe with calculated time-to-sepsis for this patient
         df.loc[patient_data.index, 'time_to_sepsis'] = time_to_sepsis_vals
 
     return df
 
-
-def create_sequences(df, patient_col='Patient_ID', hour_col='Hour', feature_cols=None, seq_length=12):
-    """
-    Generate fixed-length sequences of patient data for model input:
-    - For each patient, slide a window of length seq_length over their hourly data.
-    - Each sequence contains features for consecutive hours.
-    - The label for a sequence is the 'time_to_sepsis' value at the last hour of that sequence.
-    Args:
-        df: input dataframe with preprocessed features and 'time_to_sepsis' label
-        patient_col: patient identifier column
-        hour_col: hourly time column
-        feature_cols: list of feature columns to include in sequences (if None, all except IDs and labels are used)
-        seq_length: length of each input sequence (e.g. 12 for 12 hours)
-    Returns:
-        X: numpy array of shape (num_sequences, seq_length, num_features) with input sequences
-        y: numpy array of shape (num_sequences,) with corresponding time-to-sepsis labels
-    """
+# ------------------------ 3. Create fixed-length sequences ------------------------
+def create_sequences(df, patient_col='Patient_ID', hour_col='Hour', feature_cols=None, seq_length=SEQ_LENGTH):
     if feature_cols is None:
         feature_cols = [c for c in df.columns if c not in [patient_col, hour_col, 'SepsisLabel', 'time_to_sepsis']]
 
@@ -152,44 +67,99 @@ def create_sequences(df, patient_col='Patient_ID', hour_col='Hour', feature_cols
     labels = []
 
     patients = df[patient_col].unique()
-
     for patient in patients:
         patient_data = df[df[patient_col] == patient].sort_values(hour_col)
-
         features_array = patient_data[feature_cols].values
         time_to_sepsis_array = patient_data['time_to_sepsis'].values
 
         for start in range(len(patient_data) - seq_length + 1):
             end = start + seq_length
             seq_X = features_array[start:end]
-            seq_y = time_to_sepsis_array[end - 1]  # label at last hour of sequence
-
+            seq_y = time_to_sepsis_array[end - 1]  # label at sequence end
             sequences.append(seq_X)
             labels.append(seq_y)
 
     X = np.array(sequences)
     y = np.array(labels)
-
-    print(f"Created {len(X)} sequences each of length {seq_length}.")
-
     return X, y
 
-if __name__ == '__main__':
-    csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sepsis_dataset.csv')
-    df = pd.read_csv(csv_path)
-    # Explore the CSV file
-    explore_csv(df)
-    # Load data
-    df,features = preprocess_sepsis_data(df)  # your cleaned dataframe sorted by Patient_ID and Hour
+# ------------------------ 4. GRU Model Definition ------------------------
+class GRUModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim):
+        super().__init__()
+        self.gru = nn.GRU(input_dim, hidden_dim, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+    def forward(self, x):
+        out, _ = self.gru(x)
+        out = out[:, -1, :]  # last timestep output
+        return self.fc(out).squeeze(1)  # output shape (batch,)
+
+# ------------------------ 5. Load data and prepare training ------------------------
+def main():
+    print("Loading raw data...")
+    df_raw = pd.read_csv(DATA_CSV_PATH)
+
+    print("Preprocessing data...")
+    df, features, scaler = preprocess_sepsis_data(df_raw)
+
+    print("Creating time-to-sepsis labels...")
     df = create_time_to_sepsis_label(df)
-    # Now df['time_to_sepsis'] contains targets for time-to-sepsis prediction
-    # X, y = create_sequences(df, feature_cols=features, seq_length=12)
-    # np.save(os.path.join(os.path.dirname(__file__), '..', 'data', 'X_sequences.npy'), X)
-    # np.save(os.path.join(os.path.dirname(__file__), '..', 'data', 'y_labels.npy'), y)
-    # print("Saved X and y sequences as numpy files.")
 
-    output_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_sepsis_dataset.csv')
-    df.to_csv(output_path, index=False)
-    print("Processed data saved to 'processed_sepsis_dataset.csv'")
+    print("Generating sequences for modeling...")
+    X, y = create_sequences(df, feature_cols=features, seq_length=SEQ_LENGTH)
 
+    print(f"Total sequences: {len(X)}")
 
+    # Train-val split
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Convert to tensors
+    train_dataset = torch.utils.data.TensorDataset(torch.tensor(X_train, dtype=torch.float32),
+                                                   torch.tensor(y_train, dtype=torch.float32))
+    val_dataset = torch.utils.data.TensorDataset(torch.tensor(X_val, dtype=torch.float32),
+                                                 torch.tensor(y_val, dtype=torch.float32))
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=BATCH_SIZE)
+
+    input_dim = len(features)
+    model = GRUModel(input_dim, hidden_dim=64, num_layers=1, output_dim=1).to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.L1Loss()  # MAE loss for regression
+
+    print("Starting training...")
+    for epoch in range(NUM_EPOCHS):
+        model.train()
+        train_loss = 0
+        for batch_X, batch_y in train_loader:
+            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+            optimizer.zero_grad()
+            outputs = model(batch_X)
+            loss = criterion(outputs, batch_y)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * batch_X.size(0)
+        train_loss /= len(train_loader.dataset)
+
+        # Validation
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch_X, batch_y in val_loader:
+                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+                outputs = model(batch_X)
+                loss = criterion(outputs, batch_y)
+                val_loss += loss.item() * batch_X.size(0)
+        val_loss /= len(val_loader.dataset)
+
+        print(f"Epoch {epoch + 1}/{NUM_EPOCHS} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}")
+
+    print(f"Saving model to {MODEL_SAVE_PATH}")
+    torch.save(model.state_dict(), MODEL_SAVE_PATH)
+    print("Training complete.")
+
+if __name__ == '__main__':
+    main()
